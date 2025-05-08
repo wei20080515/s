@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中國象棋多人遊戲</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- GUN.js for real-time database and peer-to-peer connection -->
+    <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gun/sea.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gun/lib/webrtc.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div id="gameInfo">
+            <h1>中國象棋</h1>
+            <div id="playerInfo">
+                <input type="text" id="playerName" placeholder="輸入您的名稱">
+                <button id="joinGame">加入遊戲</button>
+            </div>
+            <div id="roomInfo"></div>
+        </div>
+        
+        <div id="chessboard"></div>
+        
+        <div id="gameControls">
+            <button id="newGame">開新局</button>
+            <button id="surrender">投降</button>
+        </div>
+    </div>
+    <script src="game.js"></script>
+</body>
+</html>
+
