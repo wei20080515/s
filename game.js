@@ -73,6 +73,10 @@ function initGame() {
         }
     }
     
+    // 設置初始棋盤
+    gameState.pieces = initialBoard;
+    updateBoard();
+    
     // 訂閱遊戲狀態
     gun.get('chinesechess').on((data) => {
         if (data) {
@@ -82,6 +86,13 @@ function initGame() {
             updateBoard();
             updateGameInfo();
         }
+    });
+
+    // 初始化遊戲狀態到 GUN
+    gun.get('chinesechess').put({
+        pieces: initialBoard,
+        currentPlayer: 'red',
+        players: { red: null, black: null }
     });
 }
 
