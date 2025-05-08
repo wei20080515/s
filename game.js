@@ -1,11 +1,14 @@
-// 初始化 GUN
-const gun = Gun(['https://gun-manhattan.herokuapp.com/gun']);
+// 初始化 GUN - 使用本地對等連接
+const gun = Gun({
+    peers: ['http://localhost:8765/gun'] // 預設使用本地連接
+});
 
 // 遊戲狀態
 const gameState = {
     pieces: null,
     currentPlayer: 'red',
     selectedPiece: null,
+    selectedPieceId: null,
     players: {
         red: null,
         black: null
@@ -62,25 +65,22 @@ function initGame() {
     // 清空棋盤
     chessboard.innerHTML = '';
     
-    // 繪製棋盤格子
-    for (let y = 0; y < 10; y++) {
-        for (let x = 0; x < 9; x++) {
-            const grid = document.createElement('div');
-            grid.className = 'grid';
-            grid.style.left = (x * 50) + 'px';
-            grid.style.top = (y * 50) + 'px';
-            chessboard.appendChild(grid);
-        }
-    }
-    
     // 設置初始棋盤
-    gameState.pieces = initialBoard;
+    gameState.pieces = JSON.parse(JSON.stringify(initialBoard));
     updateBoard();
-    
+    updateGameInfo();
+
+    // 初始化遊戲狀態到 GUN
+    gun.get('chinesechess').put({
+        pieces: gameState.pieces,
+        currentPlayer: 'red',
+        players: { red: null, black: null }
+    });
+
     // 訂閱遊戲狀態
     gun.get('chinesechess').on((data) => {
-        if (data) {
-            gameState.pieces = data.pieces || initialBoard;
+        if (data && data.pieces) {
+            gameState.pieces = data.pieces;
             gameState.currentPlayer = data.currentPlayer || 'red';
             gameState.players = data.players || { red: null, black: null };
             updateBoard();
@@ -88,58 +88,95 @@ function initGame() {
         }
     });
 
-    // 初始化遊戲狀態到 GUN
-    gun.get('chinesechess').put({
-        pieces: initialBoard,
-        currentPlayer: 'red',
-        players: { red: null, black: null }
-    });
+    // 添加棋盤點擊事件 - 用於移動棋子
+    chessboard.addEventListener('click', handleBoardClick);
 }
 
 // 更新棋盤顯示
 function updateBoard() {
-    // 清除所有棋子
     const pieces = chessboard.getElementsByClassName('chess-piece');
     while (pieces.length > 0) {
         pieces[0].remove();
     }
-    
-    // 放置棋子
-    for (const [id, piece] of Object.entries(gameState.pieces)) {
-        const pieceElement = document.createElement('div');
-        pieceElement.className = `chess-piece ${piece.color}`;
-        pieceElement.textContent = piece.type;
-        pieceElement.style.left = (piece.x * 50) + 'px';
-        pieceElement.style.top = (piece.y * 50) + 'px';
-        pieceElement.dataset.id = id;
-        
-        pieceElement.addEventListener('click', handlePieceClick);
-        chessboard.appendChild(pieceElement);
+
+    Object.entries(gameState.pieces).forEach(([id, piece]) => {
+        if (piece) {  // 確保棋子存在
+            const pieceElement = document.createElement('div');
+            pieceElement.className = `chess-piece ${piece.color}`;
+            pieceElement.textContent = piece.type;
+            pieceElement.style.left = ((piece.x * 50) + 25) + 'px';
+            pieceElement.style.top = ((piece.y * 50) + 25) + 'px';
+            pieceElement.dataset.id = id;
+            
+            pieceElement.addEventListener('click', handlePieceClick);
+            chessboard.appendChild(pieceElement);
+        }
+    });
+
+    // 移除所有選中狀態
+    document.querySelectorAll('.chess-piece.selected').forEach(el => {
+        el.classList.remove('selected');
+    });
+
+    // 如果有選中的棋子，重新添加選中狀態
+    if (gameState.selectedPieceId) {
+        const selectedElement = document.querySelector(`[data-id="${gameState.selectedPieceId}"]`);
+        if (selectedElement) {
+            selectedElement.classList.add('selected');
+        }
+    }
+}
+
+// 處理棋盤點擊
+function handleBoardClick(event) {
+    if (!gameState.selectedPieceId) return;
+
+    const rect = chessboard.getBoundingClientRect();
+    const x = Math.floor((event.clientX - rect.left) / 50);
+    const y = Math.floor((event.clientY - rect.top) / 50);
+
+    // 檢查是否在棋盤範圍內
+    if (x >= 0 && x < 9 && y >= 0 && y < 10) {
+        const selectedPiece = gameState.pieces[gameState.selectedPieceId];
+        if (selectedPiece) {
+            movePiece(gameState.selectedPieceId, { x, y });
+            gameState.selectedPieceId = null;
+            gameState.selectedPiece = null;
+        }
     }
 }
 
 // 處理棋子點擊
 function handlePieceClick(event) {
+    event.stopPropagation();
     const pieceId = event.target.dataset.id;
     const piece = gameState.pieces[pieceId];
-    
-    // 確認是否是當前玩家的回合
     const playerColor = getPlayerColor();
+
+    // 確認是否是當前玩家的回合
     if (!playerColor || playerColor !== gameState.currentPlayer) {
         return;
     }
-    
-    if (gameState.selectedPiece) {
-        // 如果已經選擇了棋子，嘗試移動
-        if (isValidMove(gameState.selectedPiece, piece)) {
-            movePiece(gameState.selectedPiece, piece);
+
+    // 如果點擊的是自己的棋子
+    if (piece.color === playerColor) {
+        // 取消之前的選擇
+        if (gameState.selectedPieceId === pieceId) {
+            gameState.selectedPieceId = null;
+            gameState.selectedPiece = null;
+        } else {
+            // 選擇新的棋子
+            gameState.selectedPieceId = pieceId;
+            gameState.selectedPiece = piece;
         }
-        gameState.selectedPiece = null;
         updateBoard();
-    } else if (piece.color === playerColor) {
-        // 選擇新的棋子
-        gameState.selectedPiece = piece;
-        event.target.classList.add('selected');
+    } 
+    // 如果已經選擇了棋子，並且點擊的是對方的棋子
+    else if (gameState.selectedPieceId) {
+        const selectedPiece = gameState.pieces[gameState.selectedPieceId];
+        movePiece(gameState.selectedPieceId, piece);
+        gameState.selectedPieceId = null;
+        gameState.selectedPiece = null;
     }
 }
 
@@ -151,19 +188,31 @@ function isValidMove(fromPiece, toPiece) {
 }
 
 // 移動棋子
-function movePiece(fromPiece, toPosition) {
+function movePiece(fromPieceId, toPosition) {
+    const fromPiece = gameState.pieces[fromPieceId];
+    
+    // 如果目標位置有棋子，則移除該棋子
+    if (toPosition.type) {
+        // 找到要移除的棋子的ID
+        const targetPieceId = Object.entries(gameState.pieces).find(
+            ([_, piece]) => piece.x === toPosition.x && piece.y === toPosition.y
+        )?.[0];
+        if (targetPieceId) {
+            delete gameState.pieces[targetPieceId];
+        }
+    }
+
+    // 更新棋子位置
+    fromPiece.x = toPosition.x;
+    fromPiece.y = toPosition.y;
+
+    // 準備新的遊戲狀態
     const newState = {
         pieces: { ...gameState.pieces },
         currentPlayer: gameState.currentPlayer === 'red' ? 'black' : 'red',
         players: gameState.players
     };
-    
-    // 更新棋子位置
-    if (toPosition.x !== undefined) {
-        fromPiece.x = toPosition.x;
-        fromPiece.y = toPosition.y;
-    }
-    
+
     // 更新遊戲狀態到 GUN
     gun.get('chinesechess').put(newState);
 }
@@ -214,7 +263,7 @@ function getPlayerColor() {
 
 // 更新遊戲資訊
 function updateGameInfo() {
-    let info = `當前回合：${gameState.currentPlayer === 'red' ? '紅方' : '黑方'}<br>`;
+    let info = `當前回合：<span style="color: ${gameState.currentPlayer === 'red' ? '#d32f2f' : '#263238'}">${gameState.currentPlayer === 'red' ? '紅方' : '黑方'}</span><br>`;
     info += `紅方：${gameState.players.red || '等待加入'}<br>`;
     info += `黑方：${gameState.players.black || '等待加入'}`;
     roomInfo.innerHTML = info;
